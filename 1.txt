@@ -1,0 +1,101 @@
+import pandas as pd
+import tensorflow as tf
+from tensorflow.keras.datasets import cifar10
+from sklearn.model_selection import train_test_split
+from pathlib import Path
+from time import strftime
+import matplotlib.pyplot as plt
+# Loads CIFAR10 dataset
+# Note that first time download may take several minutes to complete
+
+cifar10 = cifar10.load_data()
+# Considering dataset is organized in tuple, items are referenced as follows
+(X_train_full, y_train_full), (X_test, y_test) = cifar10
+# Checks the shape of the training and test dataset
+print("Shape of the training dataset:", X_train_full.shape)
+print("Shape of the test dataset:", X_test.shape)
+# Each training and test example is assigned to one of the following labels.
+class_names = ["airplanes", "cars", "birds", "cats", "deer", "dogs", "frogs", \
+               "horses", "ships", "trucks"]
+# Splits train dataset further to seperate 5000 instances to be used as validation set
+
+X_train, X_val, y_train, y_val = train_test_split(
+    X_train_full, y_train_full, test_size=5000, random_state=42, stratify=y_train_full)
+Creates a 20-layers densed neural network model with specific activation and kernel initializer.
+tf.random.set_seed(42)
+
+model = tf.keras.Sequential()
+model.add(tf.keras.layers.Flatten(input_shape=[32, 32, 3]))
+for _ in range(20):
+    model.add(tf.keras.layers.Dense(100, activation="swish", kernel_initializer="he_normal"))
+    
+model.add(tf.keras.layers.Dense(10, activation="softmax"))
+# Sets the model optimizer and compiles it specific loss function and metric
+
+optimizer = tf.keras.optimizers.Nadam(learning_rate=5e-5)
+model.compile(loss="sparse_categorical_crossentropy", optimizer=optimizer, metrics=["accuracy"])
+
+**Creates callbacks for model checkpoints, early stopping and TensorBoard.**
+
+NOTE: Before continuing, create a root log folder named "logs" in the current working directory to store all log files.
+logdir = "./logs"
+def get_run_logdir(logdir="logs"):
+    """
+    Returns directory path to store all logs into. For convenience, log files for each training-run 
+    gets stored in a folder named as timestamp. By default, it considers the root log folder name
+    as "logs". For otherwise, that needs to be passed in the parameter.
+    """
+    return Path(logdir) / strftime("%Y_%m_%d_%H_%M_%S")
+# Gets the log path for current training run
+run_logdir = get_run_logdir()
+
+# Sets the path for the model weights to be stored into. Instead of storing weights across all batches,
+# only best weights gets saved.
+model_checkpoint_callback = tf.keras.callbacks.ModelCheckpoint("./model_weights/my_cifar10_model.keras", save_best_only=True)
+
+# Sets callback to stop training when model does improve after a certain number of training iterations
+early_stopping_callback = tf.keras.callbacks.EarlyStopping(patience=20, restore_best_weights=True)
+
+# Sets callback for TensorBoard especially to visualize learning curves
+tensorboard_callback = tf.keras.callbacks.TensorBoard(run_logdir)
+
+# Prepares list of callbacks to be passed into training process
+callbacks = [early_stopping_callback, model_checkpoint_callback, tensorboard_callback]
+# Initilizes TensorBoard right into the notebook for inline viewing.
+# NOTE: If TensorBoard fails to load, refer instruction in Readme.md at 
+# https://github.com/PradipKumarDas/Teaching/blob/master/21AML171-Deep_Learning/Readme.md
+# to check for alternative ways to load it.
+
+%load_ext tensorboard
+%tensorboard --logdir logdir
+# Starts model training process over specified training, validation data and callbacks
+model.fit(X_train, y_train, epochs=100, validation_data=(X_val, y_val), callbacks=callbacks)
+# After training, model gets evaluated against validation data
+model.evaluate(X_val, y_val)
+Accuracy on validation data was observed as 46.91%.
+**Now, adds Batch Normalization (BN) layer after every Dense layer (and before the activation function), except for the output layer to check if model performance improves further.**
+# Resets all the keras states
+tf.keras.backend.clear_session()
+
+tf.random.set_seed(42)
+
+model = tf.keras.Sequential()
+model.add(tf.keras.layers.Flatten(input_shape=[32, 32, 3]))
+for _ in range(20):
+    model.add(tf.keras.layers.Dense(100, kernel_initializer="he_normal"))
+    model.add(tf.keras.layers.BatchNormalization())
+    model.add(tf.keras.layers.Activation("swish"))
+    
+model.add(tf.keras.layers.Dense(10, activation="softmax"))
+
+optimizer = tf.keras.optimizers.Nadam(learning_rate=5e-4)
+model.compile(loss="sparse_categorical_crossentropy", optimizer=optimizer, metrics=["accuracy"])
+run_logdir = get_run_logdir()
+
+model_checkpoint_callback = tf.keras.callbacks.ModelCheckpoint("./model_weights/my_cifar10_bn_model.keras", save_best_only=True)
+early_stopping_callback = tf.keras.callbacks.EarlyStopping(patience=20, restore_best_weights=True)
+tensorboard_callback = tf.keras.callbacks.TensorBoard(run_logdir)
+callbacks = [early_stopping_callback, model_checkpoint_callback, tensorboard_callback]
+model.fit(X_train, y_train, epochs=100, validation_data=(X_val, y_val), callbacks=callbacks)
+# Once again, new model gets evaluated against the same validation data
+model.evaluate(X_val, y_val)
